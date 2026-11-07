@@ -153,7 +153,7 @@ function ConsultationDialog({ cities, onClose }) {
   const submit = async (event) => {
     event.preventDefault(); setError(''); setBusy(true);
     try {
-      const response = await fetch('/api/consultation-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const response = await fetch(`${API}/api/consultation-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'We could not save your request.');
       setMessage(result.message);
@@ -204,7 +204,7 @@ function SafetyReportDialog({ products, onClose }) {
   const submit = async (event) => {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      const response = await fetch('/api/safety-reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const response = await fetch(`${API}/api/safety-reports`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'We could not send this report.');
       setMessage(result.message);
@@ -233,7 +233,7 @@ function PaymentReturn({ orderId, onPaid, onExit }) {
   const verify = async () => {
     setStatus('Checking with Chapa…'); setFailed(false);
     try {
-      const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/payment-status`);
+      const response = await fetch(`${API}/api/orders/${encodeURIComponent(orderId)}/payment-status`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Payment status is temporarily unavailable.');
       if (result.orderStatus === 'paid') { setStatus('Payment confirmed. Your order is on its way to our team.'); onPaid(); }
@@ -266,7 +266,7 @@ export default function App() {
   const [orderId, setOrderId] = useState(new URLSearchParams(window.location.search).get('order'));
 
   useEffect(() => {
-    fetch('/api/config/public')
+    fetch(`${API}/api/config/public`)
       .then((response) => response.ok ? response.json() : Promise.reject(new Error('Could not load delivery settings.')))
       .then((config) => {
         if (Array.isArray(config.deliveryCities) && config.deliveryCities.length) setDeliveryCities(config.deliveryCities);
@@ -279,7 +279,7 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams({ q: query, category: activeCategory, skinType });
     setLoading(true);
-    fetch(`/api/products?${params}`)
+    fetch(`${API}/api/products?${params}`)
       .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Catalog is unavailable.'); return body.products || []; })
       .then((rows) => { setProducts(rows); setCatalogError(''); })
       .catch((error) => { setCatalogError(error.message); setProducts([]); })
@@ -287,7 +287,7 @@ export default function App() {
   }, [query, activeCategory, skinType]);
 
   useEffect(() => {
-    fetch('/api/articles').then((response) => response.ok ? response.json() : Promise.reject(new Error('Articles unavailable.')))
+    fetch(`${API}/api/articles`).then((response) => response.ok ? response.json() : Promise.reject(new Error('Articles unavailable.')))
       .then((result) => setArticles(result.articles || [])).catch(() => setArticles([]));
   }, []);
 

@@ -1,0 +1,110 @@
+# render.yaml — Beauty Face platform
+# Render Infrastructure-as-Code (IaC) for auto-deploy.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# This file defines two services:
+#   1. beauty-face-api  — Node.js/Express backend (Web Service)
+#   2. beauty-face-web  — React/Vite frontend  (Static Site)
+#
+# HOW TO USE:
+#   1. Push this file to your GitHub repo (root level).
+#   2. In Render dashboard → New → Blueprint → connect this repo.
+#   3. Render will detect both services and prompt you to fill in
+#      the secret env vars marked `sync: false`.
+#
+# SECRET ENV VARS to fill in Render dashboard (never commit these):
+#   Backend:  DATABASE_URL, PII_ENCRYPTION_KEY, CHAPA_PRIVATE_KEY,
+#             CHAPA_WEBHOOK_SECRET, WEB_ORIGIN
+#   Frontend: VITE_API_BASE, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
+
+services:
+
+  # ── Backend: Node.js / Express API ────────────────────────────────────────
+  - type: web
+    name: beauty-face-api
+    runtime: node
+    plan: free           # upgrade to 'starter' to avoid cold starts in production
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Database — Supabase connection pooler URI (Transaction mode, port 6543)
+      # Format: postgres://postgres.[ref]:[password]@aws-0-*.pooler.supabase.com:6543/postgres
+      - key: DATABASE_URL
+        sync: false       # fill in Render dashboard
+
+      # Supabase requires SSL; keep this true
+      - key: PGSSL
+        value: "true"
+
+      # 32-byte base64 key for encrypting PII (customer names, phones, addresses)
+      # Generate: node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+      - key: PII_ENCRYPTION_KEY
+        sync: false       # fill in Render dashboard
+
+      # Comma-separated list of allowed frontend origins for CORS.
+      # Set to your Render static site URL after it's deployed, e.g.:
+      #   https://beauty-face-web.onrender.com
+      - key: WEB_ORIGIN
+        sync: false       # fill in Render dashboard
+
+      # Chapa payment integration
+      - key: CHAPA_PRIVATE_KEY
+        sync: false       # fill in Render dashboard
+      - key: CHAPA_WEBHOOK_SECRET
+        sync: false       # fill in Render dashboard
+      - key: CHAPA_API_BASE
+        value: https://api.chapa.global/v2
+
+      # Delivery configuration (comma-separated; must match exactly in fees map)
+      - key: DELIVERY_CITIES
+        value: "Addis Ababa,Adama"
+      - key: DELIVERY_FEES_CENTS
+        value: "Addis Ababa:50000,Adama:70000"
+
+      # Admin bootstrap — set ONCE to create the first admin account, then remove.
+      # Run:  node src/scripts/bootstrap-admin.js  (via Render Shell or one-off job)
+      - key: ADMIN_BOOTSTRAP_EMAIL
+        sync: false
+      - key: ADMIN_BOOTSTRAP_PASSWORD
+        sync: false
+      - key: ADMIN_BOOTSTRAP_NAME
+        sync: false
+
+
+  # ── Frontend: React / Vite static site ────────────────────────────────────
+  - type: web
+    name: beauty-face-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    # Rewrite all paths to index.html so the SPA handles its own routing.
+    # This is required for /admin and any deep-links to work after a page refresh.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # Cache static assets aggressively; HTML never cached (Vite hashes asset filenames)
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    envVars:
+      # URL of the beauty-face-api Web Service above.
+      # Set to: https://beauty-face-api.onrender.com
+      - key: VITE_API_BASE
+        sync: false       # fill in Render dashboard
+
+      # Supabase — publishable (anon) key only. Never use service_role here.
+      - key: VITE_SUPABASE_URL
+        sync: false       # fill in Render dashboard
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false       # fill in Render dashboard

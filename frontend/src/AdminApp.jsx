@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import './admin.css';
 
+// All admin API calls go to the same backend origin.
+// In production (separate Render services), set VITE_API_BASE to the backend URL.
+const API = import.meta.env.VITE_API_BASE ?? '';
+
 const menu = [
   ['overview', 'Overview', '⌂'], ['products', 'Products', '▦'], ['orders', 'Orders & payments', '▣'],
   ['customers', 'Customers', '♙'], ['sellers', 'Sellers', '◈'], ['doctors', 'Clinicians', '✚'],
@@ -180,14 +184,14 @@ export default function AdminApp() {
   const request = useCallback(async (path, options = {}) => {
     const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) };
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(options.method)) headers['X-CSRF-Token'] = csrfToken;
-    const response = await fetch(path, { ...options, headers, credentials: 'include' });
+    const response = await fetch(`${API}${path}`, { ...options, headers, credentials: 'include' });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || 'The request could not be completed.');
     return result;
   }, [csrfToken]);
 
   useEffect(() => {
-    fetch('/api/admin/auth/session', { credentials: 'include' })
+    fetch(`${API}/api/admin/auth/session`, { credentials: 'include' })
       .then(async (response) => { const result = await response.json(); if (!response.ok) throw new Error(result.error); return result; })
       .then((result) => { setAdmin(result.admin); setCsrfToken(result.csrfToken); })
       .catch(() => {})
@@ -230,7 +234,7 @@ export default function AdminApp() {
   }, [query, rows]);
 
   const login = async (email, password) => {
-    const response = await fetch('/api/admin/auth/login', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+    const response = await fetch(`${API}/api/admin/auth/login`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Sign-in failed.');
     setAdmin(result.admin); setCsrfToken(result.csrfToken);
