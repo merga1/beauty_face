@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AuthDialog, AccountMenu } from './components/AuthDialog.jsx';
+
+const API = import.meta.env.VITE_API_BASE ?? '';
 
 const categories = [
   { name: 'Skincare', icon: '✿', color: 'lilac', caption: 'Gentle, everyday care' },
@@ -15,7 +18,7 @@ function BrandMark() {
   return <span className="brand-mark" aria-hidden="true"><span /></span>;
 }
 
-function Header({ count, onBag, onConsult }) {
+function Header({ count, onBag, onConsult, onOpenAuth }) {
   return (
     <header className="site-header">
       <a className="brand" href="#top" aria-label="Beauty Face home">
@@ -26,6 +29,7 @@ function Header({ count, onBag, onConsult }) {
       </nav>
       <div className="header-actions">
         <button className="text-link consult-link" onClick={onConsult}>Talk to a specialist <span>↗</span></button>
+        <AccountMenu onOpenAuth={onOpenAuth} />
         <button className="bag-button" onClick={onBag} aria-label={`Open bag, ${count} items`}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 13H4L5 8Z"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/></svg>
           <span>Bag</span><b>{count}</b>
@@ -105,7 +109,7 @@ function CheckoutDialog({ cart, cities, fees, onClose, onOrder }) {
   const submit = async (event) => {
     event.preventDefault(); setError(''); setBusy(true);
     try {
-      const response = await fetch('/api/orders', {
+      const response = await fetch(`${API}/api/orders`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: cart.map(({ product, quantity }) => ({ productId: product.id, quantity })),
@@ -255,6 +259,7 @@ export default function App() {
   const [cart, setCart] = useState(() => { try { const value = JSON.parse(localStorage.getItem('beauty-face-cart') || '[]'); return Array.isArray(value) ? value.filter((item) => item?.product?.id && Number.isInteger(item.quantity) && item.quantity > 0) : []; } catch { return []; } });
   const [saved, setSaved] = useState(() => { try { const value = JSON.parse(localStorage.getItem('beauty-face-saved') || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } });
   const [dialog, setDialog] = useState('');
+  const [authDialog, setAuthDialog] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [safetyReportOpen, setSafetyReportOpen] = useState(false);
@@ -307,7 +312,7 @@ export default function App() {
 
   return <>
     <div className="announcement"><span className="announcement-sparkle">✦</span> {siteSettings.announcement} <span className="announcement-divider">·</span> Made for Ethiopia <a href="#our-approach">Discover our approach <span>→</span></a></div>
-    <Header count={cartCount} onBag={() => setDialog('cart')} onConsult={() => setDialog('consult')} />
+    <Header count={cartCount} onBag={() => setDialog('cart')} onConsult={() => setDialog('consult')} onOpenAuth={() => setAuthDialog(true)} />
     <main id="top">
       <section className="hero-section">
         <div className="hero-copy"><span className="eyebrow"><span className="eyebrow-dot" /> YOUR SKIN, YOUR STORY</span><h1>Care for your skin.<br/><em>Feel good</em> in your skin.</h1><p>A calmer way to discover skincare and beauty. Thoughtful product details, local care, and guidance that puts your wellbeing first.</p>
@@ -345,5 +350,6 @@ export default function App() {
     {selectedProduct && <ProductDialog product={selectedProduct} onClose={() => setSelectedProduct(null)} onAdd={addToCart}/>}
     {selectedArticle && <ArticleDialog article={selectedArticle} onClose={() => setSelectedArticle(null)}/>}
     {safetyReportOpen && <SafetyReportDialog products={products} onClose={() => setSafetyReportOpen(false)}/>}
+    {authDialog && <AuthDialog onClose={() => setAuthDialog(false)} />}
   </>;
 }
