@@ -58,7 +58,7 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 const webDist = fileURLToPath(new URL('../../frontend/dist/', import.meta.url));
 if (existsSync(path.join(webDist, 'index.html'))) {
   app.use(express.static(webDist, { index: false, maxAge: '1h' }));
-  app.get('*', (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
+  app.get('/{*splat}', (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
 }
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
