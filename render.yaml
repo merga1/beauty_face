@@ -36,9 +36,9 @@ services:
         value: https://api.chapa.global/v2
 
       - key: DELIVERY_CITIES
-        value: "Addis Ababa,Adama"
+        value: 'Addis Ababa,Adama'
       - key: DELIVERY_FEES_CENTS
-        value: "Addis Ababa:50000,Adama:70000"
+        value: 'Addis Ababa:50000,Adama:70000'
 
       # Supabase Auth client configuration for Vite build
       - key: VITE_SUPABASE_URL
