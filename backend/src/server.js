@@ -2,6 +2,9 @@ import cors from 'cors';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
+import path from 'node:path';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { pool } from './db.js';
 import { publicConfig } from './config.js';
 import { productsRouter } from './routes/products.js';
@@ -17,7 +20,11 @@ const port = Number(process.env.PORT || 4000);
 const origins = (process.env.WEB_ORIGIN || 'http://localhost:5173').split(',').map((origin) => origin.trim());
 
 app.disable('x-powered-by');
-app.use(helmet());
+// Render terminates TLS at a proxy; trust one hop so rate limits and client IPs are correct.
+app.set('trust proxy', 1);
+app.use(helmet({
+  contentSecurityPolicy: false, // Allow inline styles and external scripts like Vite builds
+}));
 app.use(cors({ origin: origins, credentials: true, methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'X-CSRF-Token'] }));
 app.use('/api/webhooks', express.raw({ type: 'application/json', limit: '64kb' }), webhooksRouter);
 app.use(express.json({ limit: '32kb' }));
@@ -44,6 +51,16 @@ app.use('/api/articles', articlesRouter);
 app.use('/api/safety-reports', safetyReportsRouter);
 app.use('/api/consultation-requests', consultationsRouter);
 app.use('/api/orders', ordersRouter);
+app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
+
+// Serve the built React app from the same origin as the API. The admin session
+// cookie is SameSite=Strict, so the site and /api must share one origin.
+const webDist = fileURLToPath(new URL('../../frontend/dist/', import.meta.url));
+if (existsSync(path.join(webDist, 'index.html'))) {
+  app.use(express.static(webDist, { index: false, maxAge: '1h' }));
+  app.get('*', (_req, res) => res.sendFile(path.join(webDist, 'index.html')));
+}
+
 app.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
 app.use((error, _req, res, _next) => {
   const status = Number(error.status) || (error.code === '23505' ? 409 : 500);
@@ -51,7 +68,7 @@ app.use((error, _req, res, _next) => {
   res.status(status).json({ error: status >= 500 ? 'The request could not be completed.' : error.message });
 });
 
-const server = app.listen(port, () => console.log(`Beauty Face API listening on ${port}`));
+const server = app.listen(port, '0.0.0.0', () => console.log(`Beauty Face API listening on ${port}`));
 const shutdown = () => server.close(() => pool.end().finally(() => process.exit(0)));
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
