@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "admin:bootstrap": "node src/scripts/bootstrap-admin.js"
+    "admin:bootstrap": "node src/scripts/bootstrap-admin.js",
+    "migrate": "node src/scripts/migrate.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -7,7 +7,8 @@
     "dev": "concurrently -k -n api,web -c blue,magenta \"npm run dev --workspace backend\" \"npm run dev --workspace frontend\"",
     "start": "npm run start --workspace backend",
     "build": "npm run build --workspace frontend",
-    "admin:bootstrap": "npm run admin:bootstrap --workspace backend"
+    "admin:bootstrap": "npm run admin:bootstrap --workspace backend",
+    "migrate": "npm run migrate --workspace backend"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
