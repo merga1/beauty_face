@@ -10,6 +10,36 @@ import { deliveryConfig } from '../config.js';
 export const adminRouter = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_DATA_URL = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/;
+
+const PRODUCT_RETURNING = `id, seller_id, slug, name, brand, category, description, price_cents,
+  skin_types, concerns, ingredients, how_to_use, warnings, supplier_verification,
+  expiry_information, sample_listing, published, stock_count, created_at, updated_at,
+  CASE WHEN image_data IS NOT NULL THEN '/api/products/' || slug || '/image' END AS image_url`;
+
+function looksLikeImage(buffer, mime) {
+  if (mime === 'image/jpeg') return buffer[0] === 0xff && buffer[1] === 0xd8;
+  if (mime === 'image/png') return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+  if (mime === 'image/gif') return buffer.subarray(0, 3).toString('ascii') === 'GIF';
+  if (mime === 'image/webp') return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+  return false;
+}
+
+function parseImage(body) {
+  if (body?.removeImage === true) return { remove: true, data: null, mime: null };
+  const raw = body?.image;
+  if (raw === undefined || raw === null || raw === '') return { remove: false, data: null, mime: null };
+  if (typeof raw !== 'string') fail('Upload a valid image file.');
+  const match = IMAGE_DATA_URL.exec(raw);
+  if (!match) fail('Upload a JPEG, PNG, WebP, or GIF image.');
+  const mime = match[1];
+  const data = Buffer.from(match[2], 'base64');
+  if (!data.length) fail('The image file is empty.');
+  if (data.length > MAX_IMAGE_BYTES) fail('Images must be 5 MB or smaller.');
+  if (!looksLikeImage(data, mime)) fail('The uploaded file is not a valid image.');
+  return { remove: false, data, mime };
+}
 
 function fail(message, status = 400) {
   const error = new Error(message);
@@ -74,6 +104,7 @@ function parseProduct(body) {
     ingredients: stringArray(body.ingredients, 'Ingredients'), howToUse: text(body.howToUse || '', 'How to use', 2000, false),
     warnings: stringArray(body.warnings, 'Warnings'), expiryInformation: text(body.expiryInformation || 'Expiry details not provided.', 'Expiry details', 500, false),
     supplierVerification: verification, sampleListing, published, stockCount, sellerId,
+    image: parseImage(body),
   };
 }
 
@@ -116,7 +147,12 @@ adminRouter.get('/overview', async (_req, res, next) => {
 adminRouter.get('/products', async (_req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.*, s.display_name AS seller_name FROM products p LEFT JOIN sellers s ON s.id = p.seller_id ORDER BY p.updated_at DESC LIMIT 500`,
+      `SELECT p.id, p.seller_id, p.slug, p.name, p.brand, p.category, p.description, p.price_cents,
+         p.skin_types, p.concerns, p.ingredients, p.how_to_use, p.warnings, p.supplier_verification,
+         p.expiry_information, p.sample_listing, p.published, p.stock_count, p.created_at, p.updated_at,
+         CASE WHEN p.image_data IS NOT NULL THEN '/api/products/' || p.slug || '/image' END AS image_url,
+         s.display_name AS seller_name
+       FROM products p LEFT JOIN sellers s ON s.id = p.seller_id ORDER BY p.updated_at DESC LIMIT 500`,
     );
     res.json({ products: rows.map((product) => ({ ...product, priceEtb: Number(product.price_cents) / 100 })) });
   } catch (error) { next(error); }
@@ -128,13 +164,19 @@ adminRouter.post('/products', async (req, res, next) => {
     const result = await transaction(async (client) => {
       const { rows } = await client.query(
         `INSERT INTO products (seller_id, slug, name, brand, category, description, price_cents, skin_types, concerns,
-          ingredients, how_to_use, warnings, expiry_information, supplier_verification, sample_listing, published, stock_count)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+          ingredients, how_to_use, warnings, expiry_information, supplier_verification, sample_listing, published, stock_count,
+          image_data, image_mime, image_updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+           CASE WHEN $18::bytea IS NOT NULL THEN now() END)
+         RETURNING ${PRODUCT_RETURNING}`,
         [product.sellerId, product.slug, product.name, product.brand, product.category, product.description, product.priceCents,
           product.skinTypes, product.concerns, product.ingredients, product.howToUse, product.warnings, product.expiryInformation,
-          product.supplierVerification, product.sampleListing, product.published, product.stockCount],
+          product.supplierVerification, product.sampleListing, product.published, product.stockCount,
+          product.image.data, product.image.mime],
       );
-      await recordAdminAudit(client, req.admin.id, 'create', 'product', rows[0].id, { slug: product.slug, published: product.published });
+      await recordAdminAudit(client, req.admin.id, 'create', 'product', rows[0].id, {
+        slug: product.slug, published: product.published, imageAdded: Boolean(product.image.data),
+      });
       return rows[0];
     });
     res.status(201).json({ product: { ...result, priceEtb: Number(result.price_cents) / 100 } });
@@ -149,14 +191,22 @@ adminRouter.patch('/products/:id', async (req, res, next) => {
       const { rows } = await client.query(
         `UPDATE products SET seller_id=$1, slug=$2, name=$3, brand=$4, category=$5, description=$6, price_cents=$7,
           skin_types=$8, concerns=$9, ingredients=$10, how_to_use=$11, warnings=$12, expiry_information=$13,
-          supplier_verification=$14, sample_listing=$15, published=$16, stock_count=$17, updated_at=now()
-         WHERE id=$18 RETURNING *`,
+          supplier_verification=$14, sample_listing=$15, published=$16, stock_count=$17,
+          image_data=CASE WHEN $18 THEN NULL WHEN $19::bytea IS NOT NULL THEN $19 ELSE image_data END,
+          image_mime=CASE WHEN $18 THEN NULL WHEN $19::bytea IS NOT NULL THEN $20 ELSE image_mime END,
+          image_updated_at=CASE WHEN $18 OR $19::bytea IS NOT NULL THEN now() ELSE image_updated_at END,
+          updated_at=now()
+         WHERE id=$21 RETURNING ${PRODUCT_RETURNING}`,
         [product.sellerId, product.slug, product.name, product.brand, product.category, product.description, product.priceCents,
           product.skinTypes, product.concerns, product.ingredients, product.howToUse, product.warnings, product.expiryInformation,
-          product.supplierVerification, product.sampleListing, product.published, product.stockCount, req.params.id],
+          product.supplierVerification, product.sampleListing, product.published, product.stockCount,
+          product.image.remove, product.image.data, product.image.mime, req.params.id],
       );
       if (!rows[0]) fail('Product not found.', 404);
-      await recordAdminAudit(client, req.admin.id, 'update', 'product', req.params.id, { slug: product.slug, published: product.published });
+      await recordAdminAudit(client, req.admin.id, 'update', 'product', req.params.id, {
+        slug: product.slug, published: product.published,
+        imageAdded: Boolean(product.image.data), imageRemoved: product.image.remove,
+      });
       return rows[0];
     });
     res.json({ product: { ...result, priceEtb: Number(result.price_cents) / 100 } });
@@ -167,9 +217,9 @@ adminRouter.delete('/products/:id', async (req, res, next) => {
   try {
     checkId(req.params.id);
     await transaction(async (client) => {
-      const { rows } = await client.query('UPDATE products SET published=false, stock_count=0, updated_at=now() WHERE id=$1 RETURNING id', [req.params.id]);
+      const { rows } = await client.query('DELETE FROM products WHERE id=$1 RETURNING id, slug, name', [req.params.id]);
       if (!rows[0]) fail('Product not found.', 404);
-      await recordAdminAudit(client, req.admin.id, 'unpublish', 'product', req.params.id);
+      await recordAdminAudit(client, req.admin.id, 'delete', 'product', req.params.id, { slug: rows[0].slug, name: rows[0].name });
     });
     res.json({ ok: true });
   } catch (error) { next(error); }

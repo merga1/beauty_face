@@ -5,7 +5,8 @@ export const productsRouter = Router();
 
 const productFields = `id, slug, name, brand, category, description, price_cents,
   skin_types, concerns, ingredients, how_to_use, warnings, supplier_verification,
-  expiry_information, sample_listing, stock_count`;
+  expiry_information, sample_listing, stock_count,
+  CASE WHEN image_data IS NOT NULL THEN '/api/products/' || slug || '/image' END AS image_url`;
 
 productsRouter.get('/', async (req, res, next) => {
   try {
@@ -33,6 +34,23 @@ productsRouter.get('/', async (req, res, next) => {
       values,
     );
     res.json({ products: rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+productsRouter.get('/:slug/image', async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT image_data, image_mime, image_updated_at FROM products WHERE slug = $1 AND published = true LIMIT 1',
+      [req.params.slug],
+    );
+    const row = rows[0];
+    if (!row || !row.image_data) return res.status(404).json({ error: 'Image not found' });
+    res.set('Content-Type', row.image_mime || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=300');
+    if (row.image_updated_at) res.set('Last-Modified', new Date(row.image_updated_at).toUTCString());
+    res.send(row.image_data);
   } catch (error) {
     next(error);
   }

@@ -27,7 +27,13 @@ app.use(helmet({
 }));
 app.use(cors({ origin: origins, credentials: true, methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'X-CSRF-Token'] }));
 app.use('/api/webhooks', express.raw({ type: 'application/json', limit: '64kb' }), webhooksRouter);
-app.use(express.json({ limit: '32kb' }));
+const jsonParser = express.json({ limit: '32kb' });
+// Product create/update can include a base64-encoded image, so those routes get
+// a larger body limit while every other endpoint keeps the tight default.
+const imageParser = express.json({ limit: '8mb' });
+app.use((req, res, next) => (
+  req.path.startsWith('/api/admin/products') ? imageParser(req, res, next) : jsonParser(req, res, next)
+));
 app.use('/api', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-7', legacyHeaders: false }));
 app.use('/api/admin/auth/login', rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-7', legacyHeaders: false }));
 app.use('/api/admin', adminRouter);
