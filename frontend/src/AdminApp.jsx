@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './admin.css';
 
 // All admin API calls go to the same backend origin.
@@ -84,15 +84,68 @@ function toInitial(type, item) {
   return item;
 }
 
+function ProductImageUpload({ currentImageUrl, image, removeImage, onChange, onRemove, onRestore }) {
+  const inputRef = useRef(null);
+  const preview = image || (removeImage ? null : currentImageUrl);
+  const handleFile = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { alert('Image must be 5 MB or smaller.'); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => onChange(e.target.result);
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
+  return (
+    <div className="product-image-upload field-wide admin-field">
+      <span>Product image</span>
+      <div className="image-upload-area">
+        {preview ? (
+          <div className="image-preview-wrap">
+            <img src={preview} alt="Product" className="image-preview" />
+            <div className="image-preview-actions">
+              <button type="button" className="admin-button secondary" onClick={() => inputRef.current?.click()}>Replace</button>
+              <button type="button" className="admin-button secondary danger-link" onClick={onRemove}>Remove image</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="image-upload-placeholder" onClick={() => inputRef.current?.click()}>
+            <span className="upload-icon">🖼</span>
+            <strong>Click to upload a product image</strong>
+            <small>JPEG, PNG, WebP, or GIF · Max 5 MB</small>
+          </button>
+        )}
+        {removeImage && currentImageUrl && (
+          <button type="button" className="admin-button secondary" style={{ marginTop: 6 }} onClick={onRestore}>
+            Undo remove (keep existing image)
+          </button>
+        )}
+        <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display: 'none' }} onChange={handleFile} />
+      </div>
+      <small>Upload a clear photo of the product. Images are stored securely on the server.</small>
+    </div>
+  );
+}
+
 function RecordEditor({ type, item, sellers, onSave, onClose }) {
   const fields = getFields(type, item, sellers);
   const [form, setForm] = useState(() => toInitial(type, item));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Product image state (separate from generic form fields)
+  const [imageDataUrl, setImageDataUrl] = useState(null);   // new image chosen
+  const [removeImage, setRemoveImage] = useState(false);    // flag to remove existing
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const submit = async (event) => {
     event.preventDefault(); setBusy(true); setError('');
-    try { await onSave(form); }
+    try {
+      const payload = { ...form };
+      if (type === 'products') {
+        if (imageDataUrl) payload.image = imageDataUrl;
+        else if (removeImage) payload.removeImage = true;
+      }
+      await onSave(payload);
+    }
     catch (requestError) { setError(requestError.message); }
     finally { setBusy(false); }
   };
@@ -100,15 +153,27 @@ function RecordEditor({ type, item, sellers, onSave, onClose }) {
     <section className="admin-modal" role="dialog" aria-modal="true" aria-labelledby="editor-title">
       <header className="admin-modal-head"><div><span className="admin-kicker">{item ? 'UPDATE RECORD' : 'NEW RECORD'}</span><h2 id="editor-title">{item ? 'Edit' : 'Add'} {singular[type]}</h2></div><button className="admin-icon-button" onClick={onClose} aria-label="Close">×</button></header>
       <form className="admin-form" onSubmit={submit}>
-        <div className="admin-form-grid">{fields.map((field) => <label key={field.key} className={`admin-field ${field.type === 'textarea' ? 'field-wide' : ''} ${field.type === 'checkbox' ? 'field-checkbox' : ''}`}>
-          {field.type === 'checkbox' ? <><input type="checkbox" checked={Boolean(form[field.key])} onChange={(event) => update(field.key, event.target.checked)} /><span>{field.label}</span></> : <>
-            <span>{field.label}{field.required ? ' *' : ''}</span>
-            {field.type === 'textarea' ? <textarea rows="4" value={form[field.key] ?? ''} onChange={(event) => update(field.key, event.target.value)} required={field.required !== false} /> : field.type === 'select' ?
-              <select value={form[field.key] ?? field.options[0][0]} onChange={(event) => update(field.key, event.target.value)}>{field.options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> :
-              <input type={field.type || 'text'} min={field.min} step={field.step} value={form[field.key] ?? ''} onChange={(event) => update(field.key, event.target.value)} required={field.required !== false} />}
-            {field.hint && <small>{field.hint}</small>}
-          </>}
-        </label>)}</div>
+        <div className="admin-form-grid">
+          {type === 'products' && (
+            <ProductImageUpload
+              currentImageUrl={item?.image_url ? `${import.meta.env.VITE_API_BASE ?? ''}${item.image_url}` : null}
+              image={imageDataUrl}
+              removeImage={removeImage}
+              onChange={(dataUrl) => { setImageDataUrl(dataUrl); setRemoveImage(false); }}
+              onRemove={() => { setImageDataUrl(null); setRemoveImage(true); }}
+              onRestore={() => { setImageDataUrl(null); setRemoveImage(false); }}
+            />
+          )}
+          {fields.map((field) => <label key={field.key} className={`admin-field ${field.type === 'textarea' ? 'field-wide' : ''} ${field.type === 'checkbox' ? 'field-checkbox' : ''}`}>
+            {field.type === 'checkbox' ? <><input type="checkbox" checked={Boolean(form[field.key])} onChange={(event) => update(field.key, event.target.checked)} /><span>{field.label}</span></> : <>
+              <span>{field.label}{field.required ? ' *' : ''}</span>
+              {field.type === 'textarea' ? <textarea rows="4" value={form[field.key] ?? ''} onChange={(event) => update(field.key, event.target.value)} required={field.required !== false} /> : field.type === 'select' ?
+                <select value={form[field.key] ?? field.options[0][0]} onChange={(event) => update(field.key, event.target.value)}>{field.options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select> :
+                <input type={field.type || 'text'} min={field.min} step={field.step} value={form[field.key] ?? ''} onChange={(event) => update(field.key, event.target.value)} required={field.required !== false} />}
+              {field.hint && <small>{field.hint}</small>}
+            </>}
+          </label>)}
+        </div>
         {error && <div className="admin-form-error" role="alert">{error}</div>}
         <footer className="admin-modal-actions"><button type="button" className="admin-button secondary" onClick={onClose}>Cancel</button><button className="admin-button primary" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button></footer>
       </form>
@@ -380,8 +445,16 @@ function EmptyTable({ columns, children }) {
 }
 
 function ProductsPage({ rows, onCreate, onEdit, onDelete }) {
+  const API = import.meta.env.VITE_API_BASE ?? '';
   return <><PageTitle kicker="CATALOG MANAGEMENT" title="Products" subtitle="Control product information, stock, verification, and storefront visibility." action={<button className="admin-button primary" onClick={onCreate}>＋ Add product</button>}/>
-    <div className="admin-table-wrap"><table><thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Supplier</th><th>Visibility</th><th/></tr></thead><tbody><EmptyTable columns={7} children={rows.map((item) => <tr key={item.id}><td><strong>{item.name}</strong><small>{item.brand} · {item.slug}{item.sample_listing ? ' · demo' : ''}</small></td><td>{item.category}</td><td>{amount(item.price_cents)}</td><td>{item.stock_count}</td><td><StatusPill>{item.supplier_verification}</StatusPill></td><td><StatusPill>{item.published ? 'published' : 'draft'}</StatusPill></td><td className="row-actions"><button onClick={() => onEdit(item)}>Edit</button><button className="danger-link" onClick={() => onDelete(item)}>Unpublish</button></td></tr>)}/></tbody></table></div>
+    <div className="admin-table-wrap"><table><thead><tr><th>Image</th><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Supplier</th><th>Visibility</th><th/></tr></thead><tbody><EmptyTable columns={8} children={rows.map((item) => <tr key={item.id}>
+      <td><div className="product-thumb-wrap">{item.image_url ? <img src={`${API}${item.image_url}`} alt={item.name} className="product-thumb" /> : <span className="product-thumb-placeholder">🖼</span>}</div></td>
+      <td><strong>{item.name}</strong><small>{item.brand} · {item.slug}{item.sample_listing ? ' · demo' : ''}</small></td>
+      <td>{item.category}</td><td>{amount(item.price_cents)}</td><td>{item.stock_count}</td>
+      <td><StatusPill>{item.supplier_verification}</StatusPill></td>
+      <td><StatusPill>{item.published ? 'published' : 'draft'}</StatusPill></td>
+      <td className="row-actions"><button onClick={() => onEdit(item)}>Edit</button><button className="danger-link" onClick={() => onDelete(item)}>Unpublish</button></td>
+    </tr>)}/></tbody></table></div>
   </>;
 }
 
