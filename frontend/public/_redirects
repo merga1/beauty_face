@@ -1,0 +1,6 @@
+
+# Forward API requests to the Render backend
+/api/* https://beauty-face.onrender.com/api/:splat 200
+
+# Serve React for frontend routes such as /admin
+/* /index.html 200
